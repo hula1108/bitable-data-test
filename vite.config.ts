@@ -8,7 +8,6 @@ export default defineConfig({
   build: {
     sourcemap: 'hidden',
   },
-  base: '/bitable-data-test/',
   plugins: [
     react({
       babel: {
