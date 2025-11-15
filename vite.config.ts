@@ -7,6 +7,7 @@ import { traeBadgePlugin } from 'vite-plugin-trae-solo-badge';
 export default defineConfig({
   build: {
     sourcemap: 'hidden',
+    outDir: 'dist',
   },
   base: '/bitable-data-test/',
   plugins: [

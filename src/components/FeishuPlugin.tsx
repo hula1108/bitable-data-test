@@ -3,8 +3,9 @@ import { marked } from 'marked';
 import { parseTemplate, extractFieldNamesFromTemplate, generateOutput } from '../utils/templateProcessor';
 import { bitable } from '@lark-base-open/js-sdk';
 
-const defaultTemplate = `[数据中心]：
-  [系统]、[项目名称]、[需求FLOW]、[任务内容]、[开发负责人]、[上线类型]`;
+const defaultTemplate = `**[数据中心]：**
+  [需求FLOW]-[任务内容]：
+    [系统]（[项目名称]）-[开发负责人]<text_tag color=''>[上线类型]</text_tag>`;
 
 const FeishuPlugin: React.FC = () => {
   const [appId, setAppId] = useState('');
@@ -16,6 +17,9 @@ const FeishuPlugin: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [previewHtml, setPreviewHtml] = useState('');
+  const [resultPreviewHtml, setResultPreviewHtml] = useState('');
+  const [showPreview, setShowPreview] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const updatePreview = useCallback(async (text: string) => {
     const html = await marked(text);
@@ -25,6 +29,70 @@ const FeishuPlugin: React.FC = () => {
   React.useEffect(() => {
     updatePreview(template);
   }, [template, updatePreview]);
+
+  React.useEffect(() => {
+    const run = async () => {
+      if (!result) {
+        setResultPreviewHtml('');
+        return;
+      }
+      const html = await marked(result);
+      setResultPreviewHtml(html);
+    };
+    run();
+  }, [result]);
+
+  const handleCopyResult = async () => {
+  try {
+    if (!result) return;
+
+    let copySuccess = false;
+
+    // 尝试现代 Clipboard API
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(result);
+        copySuccess = true;
+      } catch {
+        // 静默失败，继续尝试其他方法
+      }
+    }
+
+    // 尝试传统 execCommand
+    if (!copySuccess) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = result;
+        textarea.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+        document.body.appendChild(textarea);
+        textarea.select();
+        copySuccess = document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch {
+        // 静默失败
+      }
+    }
+
+    // 最终降级方案
+    if (!copySuccess) {
+      const input = document.createElement('input');
+      input.value = result;
+      input.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+      document.body.appendChild(input);
+      input.select();
+      setTimeout(() => document.body.removeChild(input), 100);
+      alert(`文本已自动选中，请按 Ctrl+C 复制:\n\n${result}`);
+    }
+
+    // 显示成功状态
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    setError(''); // 清空错误状态
+    
+  } catch (e) {
+    setError('复制失败，请手动选择文本复制');
+  }
+};
 
   const handleGenerate = async () => {
     const isDemoMode = !appId || !appSecret || !appToken || !tableId;
@@ -88,8 +156,8 @@ const FeishuPlugin: React.FC = () => {
         return;
       }
 
-      const { groupField, template: templateFields } = parseTemplate(template);
-      const output = generateOutput(records, groupField, templateFields);
+      const { groupField, template: templateFields, secondaryTemplate } = parseTemplate(template);
+      const output = generateOutput(records, groupField, templateFields, secondaryTemplate);
       setResult(output);
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成结果时出错');
@@ -196,21 +264,13 @@ const FeishuPlugin: React.FC = () => {
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  预览
-                </label>
-                <div 
-                  className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 overflow-auto text-sm"
-                  dangerouslySetInnerHTML={{ __html: previewHtml }}
-                />
-              </div>
+              
             </div>
           </div>
         </div>
 
         {/* Generate Button */}
-        <div className="mt-8 text-center">
+        <div className="mt-8 flex items-center justify-center gap-4">
           <button
             onClick={handleGenerate}
             disabled={isLoading}
@@ -218,6 +278,20 @@ const FeishuPlugin: React.FC = () => {
           >
             {isLoading ? '生成中...' : '生成结果'}
           </button>
+          <button
+            onClick={handleCopyResult}
+            disabled={isLoading || !result}
+            className="px-4 py-3 bg-gray-600 text-white font-semibold rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            复制结果
+          </button>
+          <button
+            onClick={() => setShowPreview((v) => !v)}
+            className="px-4 py-3 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            {showPreview ? '隐藏预览' : '预览效果'}
+          </button>
+          {copied && <span className="text-green-600 text-sm">已复制</span>}
         </div>
 
         {/* Error Message */}
@@ -234,30 +308,20 @@ const FeishuPlugin: React.FC = () => {
             <div className="bg-gray-50 p-4 rounded-md">
               <pre className="whitespace-pre-wrap text-sm text-gray-800">{result}</pre>
             </div>
-            <div className="mt-4">
-              <button
-                onClick={() => navigator.clipboard.writeText(result)}
-                className="px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
-              >
-                复制结果
-              </button>
-            </div>
+            
+            {showPreview && (
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Markdown预览</h3>
+                <div
+                  className="w-full min-h-24 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 overflow-auto text-sm"
+                  dangerouslySetInnerHTML={{ __html: resultPreviewHtml }}
+                />
+              </div>
+            )}
           </div>
         )}
 
-        {/* Usage Instructions */}
-        <div className="mt-8 bg-blue-50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-900 mb-3">使用说明</h3>
-          <div className="text-blue-800 space-y-2">
-            <p>1. <strong>JS SDK模式：</strong>在飞书多维表格插件环境中打开，直接读取当前激活数据表，无需填写任何配置</p>
-            <p>2. <strong>演示模式：</strong>本地开发或未在飞书环境中运行时，使用演示数据测试功能</p>
-            <p>3. <strong>后端API模式：</strong>如需跨文档读取，可填写（App ID、App Secret、App Token、Table ID）使用开放平台接口</p>
-            <p>4. 在模板编辑器中编辑模板内容，使用 [字段名] 格式引用数据表字段</p>
-            <p>5. 第一行的 [字段名] 将作为分组字段</p>
-            <p>6. 系统会自动筛选环境为"生产"的数据</p>
-            <p>7. 点击"生成结果"按钮生成格式化后的输出</p>
-          </div>
-        </div>
+        
       </div>
     </div>
   );
